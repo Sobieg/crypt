@@ -49,6 +49,9 @@ std::bitset<N> decrypt_round(std::bitset<N> Y, std::bitset<N> k);
 void output_content(std::vector<unsigned char> content, std::string target);
 unsigned short perm(unsigned short i);
 unsigned short perm_rev(unsigned short i);
+void check_error_propagating(int round);
+void find_weak_keys();
+
 
 int main(int argc, char** argv) {
     args arguments = arguments_parse(argc, argv);
@@ -63,13 +66,66 @@ int main(int argc, char** argv) {
         closetext = encrypt_text(opentext, password);
         output_content(closetext, "encrypted.txt");
     }
-    else {
+    else if (arguments.dflag){
         argument_check(arguments, closetext, password);
         opentext = decrypt_text(closetext, password);
         output_content(opentext, "decrypted.txt");
     }
+    else if (arguments.qflag) {
+        check_error_propagating(arguments.R);
+    }
+    else if (arguments.wflag) {
+        find_weak_keys();
+    }
+
+    else {
+        std::cerr << "Nothing to do..." << std::endl;
+        print_help();
+    }
 
     return 0;
+}
+
+void check_error_propagating(int rounds) {
+    uint32_t acc;
+    uint32_t randomKey = 0x2645498e;
+    for (int i = 0; i<N; i++) {
+        bool flag = false;
+        uint32_t mask = 0xffffffff;
+        acc = 0;
+        std::cout << "Check " << i << " bit." << std::endl;
+        std::bitset<N> oddKey(randomKey);
+        std::bitset<N> evenKey = ~oddKey;
+        std::bitset<N> result(0x0);
+        for (unsigned long j = 0; j<0xffffffff; j++) {
+            std::bitset<N> left(j);
+            std::bitset<N> right(j);
+            left.set(i, false);
+            right.set(i, true);
+            for (int r = 0; r<rounds; r++) {
+                if (r%2 == 1) {
+                    left = round(left, oddKey);
+                    right = round(right, oddKey);
+                }
+                else {
+                    left = round(left, evenKey);
+                    right = round(right, evenKey);
+                }
+            }
+            left ^= std::bitset<N>(0xffffffff);
+            right ^= std::bitset<N>(0xffffffff);
+            result |= left^right;
+            if (result == std::bitset<N>(0xffffffff)) {
+                std::cout << "error is propageted on " << std::hex << std::showbase << j << std::dec << std::endl;
+                flag = true;
+                break;
+            }
+        }
+        if (!flag) {
+            std::cout << "error is not propagated" << std::endl;
+            break;
+        }
+    }
 }
 
 unsigned short perm(unsigned short i) {
@@ -86,6 +142,26 @@ void output_content(std::vector<unsigned char> content, std::string target) {
     file.close();
 }
 
+void find_weak_keys() {
+    std::vector<unsigned char> plain = {'p','l','a','i','n','_','t','e','x','t'};
+    std::vector<unsigned char> key(4, 0);
+    for (int a = 0; a<0xff; a++) {
+        key[0] = a;
+        for (int b = 0; b<0xff; b++) {
+            key[1] = b;
+            for (int c = 0; c<0xff; c++) {
+                key[2] = c;
+                for (int d = 0; d<0xff; d++) {
+                    key[3] = d;
+                    if (encrypt_text(encrypt_text(plain, key), key) == plain) {
+                        std::cout << "found new weak key: " << std::hex << std::showbase << ((key[0]<<24) + (key[1] << 16) + (key[2] << 8) + key[3]) << std::dec << std::endl;
+                    }
+                }
+            }
+        }
+    }
+    std::cout << "There is no more weak keys" << std::endl;
+}
 
 //bitset устанавливает в обратном порядке, то есть bitset[0] -- младший бит.
 std::vector<unsigned char> encrypt_text(std::vector<unsigned char> open, std::vector<unsigned char> pass) {
@@ -114,7 +190,7 @@ std::vector<unsigned char> encrypt_text(std::vector<unsigned char> open, std::ve
                 cipher_block = round(cipher_block, evenK);
             }
         }
-        cipher_block ^= std::bitset<N>(0xff);
+        cipher_block ^= std::bitset<N>(0xffffffff);
         cipher_blocks.push_back(cipher_block);
     }
 
@@ -147,7 +223,7 @@ std::vector<unsigned char> decrypt_text(std::vector<unsigned char> encr, std::ve
 
     for (std::bitset<N> Y : cipher_blocks) {
         std::bitset<N> open_block = Y;
-        open_block ^= std::bitset<N>(0xff);
+        open_block ^= std::bitset<N>(0xffffffff);
         for (int i = 0; i < D; i++) {
             if (((i + 1) % 2) == 1) {
                 open_block = decrypt_round(open_block, oddK);
@@ -293,23 +369,23 @@ std::vector<unsigned char> get_content(std::string filename, int len){
 args arguments_parse(int argc, char** argv) {
     args args;
     int c;
-    while ((c = getopt(argc, argv, ":hedf::t:p:P::")) != -1) {
+    while ((c = getopt(argc, argv, ":hedq:wf::t:p:P::")) != -1) {
         switch(c) {
             case 'h':{
                 print_help();
                 exit(0);
             }
             case 'e':{
-                if (args.dflag) {
-                    std::cerr << "Only encrypt OR decrypt" << std::endl;
+                if (args.dflag or args.qflag or args.wflag) {
+                    std::cerr << "Only one task by run" << std::endl;
                     exit(1);
                 }
                 args.eflag = true;
                 break;
             }
             case 'd':{
-                if (args.eflag) {
-                    std::cerr << "Only encrypt OR decrypt" << std::endl;
+                if (args.eflag or args.wflag or args.qflag) {
+                    std::cerr << "Only one task by run" << std::endl;
                     exit(1);
                 }
                 args.dflag = true;
@@ -349,6 +425,35 @@ args arguments_parse(int argc, char** argv) {
             case 't':{
                 args.tflag = true;
                 args.target_fn = optarg ? optarg : "target.txt";
+                break;
+            }
+            case 'q': {
+                if (args.dflag or args.eflag or args.wflag) {
+                    std::cerr << "Only one task by run" << std::endl;
+                    exit(1);
+                }
+                args.qflag = true;
+                if (optarg) {
+                    for (char *c = optarg; *c != 0; c++) {
+                        if (!isnumber(*c)) {
+                            std::cerr << "Error on -q R" << std::endl;
+                            exit(1);
+                        }
+                    }
+                    args.R = atoi(optarg);
+                }
+                else {
+                    args.R = 4;
+                }
+                break;
+            }
+            case 'w':{
+                if (args.qflag or args.dflag or args.eflag) {
+                    std::cerr << "Only one task by run" << std::endl;
+                    exit(1);
+                }
+                args.wflag = true;
+                break;
             }
             case '?': {
                 if (isprint(optopt)) {
@@ -381,8 +486,8 @@ args arguments_parse(int argc, char** argv) {
         args.fflag = true;
         args.opentext_fn = "opentext.txt";
     }
-    if (!args.dflag && !args.eflag) {
-        std::cerr << "Should use -e or -d";
+    if (!args.dflag && !args.eflag && !args.wflag && !args.qflag) {
+        std::cerr << "Should use -e or -d or -w or -q";
         print_help();
         exit(1);
     }
