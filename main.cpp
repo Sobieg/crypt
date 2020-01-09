@@ -1,8 +1,8 @@
 #include <iostream>
+#include <utility>
 #include <vector>
 #include <fstream>
 #include <map>
-#include <sstream>
 #include <unistd.h>
 #include <bitset>
 
@@ -36,8 +36,8 @@ unsigned short revS[16] = {12,  15, 7,  11, 3,  0,  14, 9,  1,  4,  5,  6,  13, 
 args arguments_parse(int argc, char** argv);
 void argument_check(args args, std::vector<unsigned char>& content, std::vector<unsigned char>& pass);
 void print_help();
-unsigned int get_filesize(std::string filename);
-std::vector<unsigned char> get_content(std::string filename, int len=0);
+unsigned int get_filesize(const std::string& filename);
+std::vector<unsigned char> get_content(const std::string& filename, int len=0);
 std::vector<unsigned char> encrypt_text(std::vector<unsigned char> open, std::vector<unsigned char> pass);
 std::vector<unsigned char> decrypt_text(std::vector<unsigned char> encr, std::vector<unsigned char> pass);
 std::vector<std::bitset<N>>
@@ -46,11 +46,12 @@ unsigned long
 get_last_block_size(std::vector<std::bitset<N>> closed_blocks);
 std::bitset<N> round(std::bitset<N> X, std::bitset<N> k);
 std::bitset<N> decrypt_round(std::bitset<N> Y, std::bitset<N> k);
-void output_content(std::vector<unsigned char> content, std::string target);
+void output_content(std::vector<unsigned char> content, const std::string& target);
 unsigned short perm(unsigned short i);
 unsigned short perm_rev(unsigned short i);
 void check_error_propagating(int round);
 void find_weak_keys();
+
 
 
 int main(int argc, char** argv) {
@@ -136,7 +137,7 @@ unsigned short perm_rev(unsigned short i) {
     return (25*i+3)%32;
 }
 
-void output_content(std::vector<unsigned char> content, std::string target) {
+void output_content(std::vector<unsigned char> content, const std::string& target) {
     std::ofstream file(target, std::ofstream::binary);
     file.write(std::string(content.begin(), content.end()).c_str(), content.size());
     file.close();
@@ -288,6 +289,11 @@ std::bitset<N> round(std::bitset<N> X, std::bitset<N> k) {
 std::vector<std::bitset<N>>
 add_last_block(std::vector<std::bitset<N>> open_blocks, std::vector<unsigned char> last_block) {
     unsigned long long last_block_size = last_block.size();
+    if (last_block_size == 0) {
+        std::vector<std::bitset<N>> result = std::move(open_blocks);
+        result.emplace_back(last_block_size);
+        return result;
+    }
 
     std::vector<unsigned char> full_block(blocklen_bytes);
     for (int i = 0; i<blocklen_bytes; i++) {
@@ -298,7 +304,7 @@ add_last_block(std::vector<std::bitset<N>> open_blocks, std::vector<unsigned cha
             break;
         }
     }
-    std::vector<std::bitset<N>> result = open_blocks;
+    std::vector<std::bitset<N>> result = std::move(open_blocks);
     result.emplace_back((full_block[3]<<0) + (full_block[2]<<8) + (full_block[1]<<16)+(full_block[0]<<24));
     result.emplace_back(last_block_size);
     return result;
@@ -335,7 +341,7 @@ void argument_check(args args, std::vector<unsigned char>& content, std::vector<
 
 }
 
-unsigned int get_filesize(std::string filename){
+unsigned int get_filesize(const std::string& filename){
     unsigned int filesize;
     std::ifstream file(filename, std::ifstream::ate | std::ifstream::binary);
     if (!file.is_open()){
@@ -348,7 +354,7 @@ unsigned int get_filesize(std::string filename){
     return filesize;
 }
 
-std::vector<unsigned char> get_content(std::string filename, int len){
+std::vector<unsigned char> get_content(const std::string& filename, int len){
     std::vector<unsigned char> product;
     unsigned int filesize = get_filesize(filename);
     if (filesize == 0) {
