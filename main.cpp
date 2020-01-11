@@ -88,12 +88,9 @@ int main(int argc, char** argv) {
 }
 
 void check_error_propagating(int rounds) {
-    uint32_t acc;
     uint32_t randomKey = 0x2645498e;
     for (int i = 0; i<N; i++) {
         bool flag = false;
-        uint32_t mask = 0xffffffff;
-        acc = 0;
         std::cout << "Check " << i << " bit." << std::endl;
         std::bitset<N> oddKey(randomKey);
         std::bitset<N> evenKey = ~oddKey;
@@ -238,7 +235,7 @@ std::vector<unsigned char> decrypt_text(std::vector<unsigned char> encr, std::ve
     unsigned long last_block_size = get_last_block_size(open_blocks);
     std::vector<unsigned char> toRet;
 
-    for (auto it = open_blocks.begin(); it!= open_blocks.end()-2; it++) {
+    for (auto it = open_blocks.begin(); it!= open_blocks.end()-(last_block_size ? 2 : 1); it++) {
         //обработка не последнего блока
         toRet.emplace_back((it->to_ulong()>>24) & 0xff);
         toRet.emplace_back((it->to_ulong()>>16) & 0xff);
