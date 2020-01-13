@@ -18,6 +18,123 @@ Super-puper long open text
 Time elapsed: 159274s
  */
 
+
+
+/*
+ *
+ * ==============
+Thread #0
+Thread time: 0s
+t: 11312
+Key one: 0xba35ba35
+Key two: 0x8770877
+Open text: 0x11a149bd
+==============
+
+
+
+==============
+Thread #4
+Thread time: 1s
+t: 31181
+Key one: 0x6d7b6d7b
+Key two: 0x13311331
+Open text: 0x2b54c4ff
+==============
+
+
+
+==============
+Thread #5
+Thread time: 3s
+t: 66699
+Key one: 0x857d857d
+Key two: 0xa1dfa1df
+Open text: 0x714a3423
+==============
+
+
+
+==============
+Thread #7
+Thread time: 5s
+t: 95556
+Key one: 0x87778777
+Key two: 0x48424842
+Open text: 0x500b8a57
+==============
+
+
+
+==============
+Thread #9
+Thread time: 5s
+t: 97433
+Key one: 0xe02ae02a
+Key two: 0x74097409
+Open text: 0x25dd70b2
+==============
+
+
+
+==============
+Thread #8
+Thread time: 5s
+t: 103171
+Key one: 0xfb20fb2
+Key two: 0xfaf6faf6
+Open text: 0x2d9246ba
+==============
+
+
+
+==============
+Thread #3
+Thread time: 5s
+t: 112581
+Key one: 0x6fa06fa0
+Key two: 0xef0eef0e
+Open text: 0x875a459
+==============
+
+
+
+==============
+Thread #1
+Thread time: 6s
+t: 116731
+Key one: 0xfa98fa98
+Key two: 0xe2a8e2a8
+Open text: 0x2963bb62
+==============
+
+
+
+==============
+Thread #6
+Thread time: 6s
+t: 119419
+Key one: 0xbb42bb42
+Key two: 0x33f133f1
+Open text: 0x745fb9d8
+==============
+
+
+
+==============
+Thread #2
+Thread time: 8s
+t: 214559
+Key one: 0xf2c5f2c5
+Key two: 0xa103a103
+Open text: 0x1f7139c2
+==============
+
+All time: 8s
+
+Process finished with exit code 0
+*/
+
 #define passlen_bytes 4
 #define blocklen_bytes 4
 #define N (8*blocklen_bytes)
@@ -79,6 +196,8 @@ unsigned short perm(unsigned short i);
 std::bitset<N/2> spn(std::bitset<N/2> X, std::bitset<N/2> key);
 void brute(std::vector<unsigned char> open, std::vector<unsigned char> encr);
 void brute_task(std::vector<unsigned char> open, std::vector<unsigned char> encr, bool is_debug);
+void cyclic_task();
+void cyclic_test(int i);
 
 
 
@@ -116,6 +235,9 @@ int main(int argc, char** argv) {
     }
     else if (arguments.wflag) {
         find_weak_keys();
+    }
+    else if (arguments.cflag) {
+        cyclic_task();
     }
     else if (arguments.bflag) {
         opentext = get_content(arguments.opentext_fn, 0);
@@ -375,6 +497,61 @@ void brute_task(std::vector<unsigned char> open, std::vector<unsigned char> encr
     }
 }
 
+void cyclic_test(int i) {
+    time_t start, end;
+    time(&start);
+    std::bitset<N/2> key_one_half(random());
+    std::bitset<N/2> key_two_half(random());
+    std::bitset<N> key_one(key_one_half.to_string() + key_one_half.to_string());
+    std::bitset<N> key_two(key_two_half.to_string() + key_two_half.to_string());
+    std::bitset<N> open(random());
+    std::bitset<N> Y = open;
+    unsigned long t = 0;
+    while(true) {
+        t++;
+        Y = Feistel(Y, key_one_half);
+        Y = Feistel(Y, key_one_half);
+        Y = Lei_Messi(Y, key_one_half);
+        Y = Lei_Messi(Y, key_one_half);
+        Y = Feistel(Y, key_two_half);
+        Y = Feistel(Y, key_two_half);
+        Y = Lei_Messi(Y, key_two_half);
+        Y = Lei_Messi(Y, key_two_half);
+        if (Y == open) {
+            time(&end);
+            mut.lock();
+            std::cout << "\n\n==============" << std::endl;
+            std::cout << "Thread #" << i << std::endl;
+            std::cout << "Thread time: " << difftime(end, start) << "s" << std::endl;
+            std::cout << "t: " << t << std::endl;
+            std::cout << "Key one: " << std::hex << std::showbase << key_one.to_ulong() << std::dec << std::endl;
+            std::cout << "Key two: " << std::hex << std::showbase << key_two.to_ulong() << std::dec << std::endl;
+            std::cout << "Open text: " << std::hex << std::showbase << open.to_ulong() << std::dec << std::endl;
+            std::cout << "==============\n\n";
+            mut.unlock();
+            return;
+        }
+    }
+}
+
+
+void cyclic_task() {
+    srandom(time(NULL));
+    time_t start, end;
+    time(&start);
+    std::vector<std::thread*> threads;
+    for (int i = 0; i<30; i++) {
+        auto* th = new std::thread(cyclic_test, i);
+        threads.emplace_back(th);
+    }
+    for (auto it = threads.begin(); it != threads.end(); it++) {
+        (*it)->join();
+    }
+    time(&end);
+    std::cout << "All time: " << difftime(end, start) << "s" << std::endl;
+}
+
+
 
 std::string ucharvec_to_binary_string(std::vector<unsigned char> text) {
     std::string bin;
@@ -595,7 +772,7 @@ void output_content(std::vector<unsigned char> content, const std::string& targe
 args arguments_parse(int argc, char** argv) {
     args args;
     int c;
-    while ((c = getopt(argc, argv, ":hedgi:bq:wf::t:p:P::")) != -1) {
+    while ((c = getopt(argc, argv, ":hedgci:bq:wf::t:p:P::")) != -1) {
         switch(c) {
             case 'h':{
                 print_help();
@@ -695,6 +872,14 @@ args arguments_parse(int argc, char** argv) {
                     exit(1);
                 }
                 args.gflag = true;
+                break;
+            }
+            case 'c' : {
+                if (args.qflag or args.dflag or args.eflag or args.wflag){
+                    std::cerr << "Only one task by run" << std::endl;
+                    exit(1);
+                }
+                args.cflag = true;
                 break;
             }
             case 'i': {
@@ -806,16 +991,17 @@ void print_help() {
     std::cout << "-h\n"
                  "\t Prints this help" << std::endl;
     std::cout <<
-              "-o OPENTEXT filename\n" <<
+              "-o OPENTEXT filename. Default: \"opentext.txt\"\n" <<
               "-p PASSWORD\n" <<
-              "-P PASSWORD filename\n" <<
+              "-P PASSWORD filename. Default :\"password.txt\"\n" <<
               "-e encrypt mode\n" <<
               "-d decrypt mode\n" <<
-              "-t TARGET filename\n" <<
-              "-q R start error propagating test on R rounds\n" <<
+              "-t TARGET filename. Default: target.txt\n" <<
+              "-q R start error propagating test on R rounds. Default: 4\n" <<
               "-w find weak keys\n" <<
               "-b brute force pass\n" <<
               "-g use CBC" <<
+              "-i IV use first 4 bytes of IV file as a IV. Default: \"iv.txt\"\n" <<
               "-c run cyclic experiment" <<
               "You should use -e, -d, -q, -w, -b or -c parameter\n"
               << std::endl;
