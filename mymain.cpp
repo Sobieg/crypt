@@ -9,6 +9,15 @@
 #include <algorithm>
 #include <random>
 
+
+/*
+ * guessed, pass is 0x71776572
+
+Text is :
+Super-puper long open text
+Time elapsed: 159274s
+ */
+
 #define passlen_bytes 4
 #define blocklen_bytes 4
 #define N (8*blocklen_bytes)
@@ -26,11 +35,15 @@ struct arguments {
     bool wflag = false;
     bool qflag = false;
     bool bflag = false;
+    bool iflag = false;
+    bool gflag = false;
+    bool cflag = false;
     std::string opentext_fn = "opentext.txt";
     std::string encryoted_fn = "encrypted.txt";
     std::string password = "passerr";
     std::string paswwrord_fn = "password.txt";
     std::string target_fn = "target.txt";
+    std::string iv_fn = "iv.txt";
     int R = 4;
 } typedef args;
 
@@ -46,6 +59,8 @@ void argument_check(args args, std::vector<unsigned char>& content, std::vector<
 std::vector<unsigned char> get_content(const std::string& filename, int len);
 std::vector<unsigned char> encrypt_text(std::vector<unsigned char> open, std::vector<unsigned char> pass);
 std::vector<unsigned char> decrypt_text(std::vector<unsigned char> encr, std::vector<unsigned char> pass);
+std::vector<unsigned char> encrypt_text_cbc(std::vector<unsigned char> open, std::vector<unsigned char> iv, std::vector<unsigned char> pass);
+std::vector<unsigned char> decrypt_text_cbc(std::vector<unsigned char> encr, std::vector<unsigned char> iv, std::vector<unsigned char> pass);
 std::vector<std::bitset<N>>
 add_last_block(std::vector<std::bitset<N>> open_blocks, std::vector<unsigned char> last_block);
 unsigned long
@@ -76,12 +91,24 @@ int main(int argc, char** argv) {
 
     if (arguments.eflag) {
         argument_check(arguments, opentext, password);
-        closetext = encrypt_text(opentext, password);
+        if (arguments.gflag) {
+            std::vector<unsigned char> iv = get_content(arguments.iv_fn, 4);
+            closetext = encrypt_text_cbc(opentext, iv, password);
+        }
+        else {
+            closetext = encrypt_text(opentext, password);
+        }
         output_content(closetext, arguments.tflag? arguments.target_fn : "encrypted.txt");
     }
     else if (arguments.dflag){
         argument_check(arguments, closetext, password);
-        opentext = decrypt_text(closetext, password);
+        if (arguments.gflag) {
+            std::vector<unsigned char> iv = get_content(arguments.iv_fn, 4);
+            opentext = decrypt_text_cbc(closetext, iv, password);
+        }
+        else {
+            opentext = decrypt_text(closetext, password);
+        }
         output_content(opentext, arguments.tflag? arguments.target_fn : "decrypted.txt");
     }
     else if (arguments.qflag) {
@@ -454,6 +481,111 @@ std::vector<unsigned char> decrypt_text(std::vector<unsigned char> encr, std::ve
     return toRet;
 }
 
+std::vector<unsigned char> encrypt_text_cbc(std::vector<unsigned char> open, std::vector<unsigned char> iv, std::vector<unsigned char> pass) {
+    std::vector<std::bitset<N>> open_blocks = std::vector<std::bitset<N>>();
+    std::vector<std::bitset<N>> cipher_blocks = std::vector<std::bitset<N>>();
+    unsigned long full_blocks = (open.size()-open.size()%blocklen_bytes)/blocklen_bytes;
+    unsigned long long block = 0;
+    for (int i = 0; i<full_blocks; i++) {
+        int ptr = i*blocklen_bytes;
+        block = 0;
+        for (int b = 0; b<blocklen_bytes; b++) {
+            block += ((unsigned long)open[ptr+b] << (blocklen_bytes-1-b)*8);
+        }
+        open_blocks.emplace_back(std::bitset<N>(block));
+    }
+    open_blocks = add_last_block(open_blocks, std::vector<unsigned char>(open.begin() + full_blocks*blocklen_bytes, open.end()));
+
+    std::string binpass = ucharvec_to_binary_string(pass);
+    std::bitset<N/2> K1(std::string(binpass.begin(), binpass.begin() + (binpass.size()/2)));
+    std::bitset<N/2> K2 (std::string(binpass.begin() + (binpass.size()/2), binpass.end()));
+
+    block = 0;
+    for (int b = 0; b<blocklen_bytes; b++) {
+        block += ((unsigned long)iv[b] << (blocklen_bytes-1-b)*8);
+    }
+    std::bitset<N> ivbin(block);
+
+    for (std::bitset<N> X : open_blocks) {
+        X = X^ivbin;
+        X = Feistel(X, K1);
+        X = Feistel(X, K2);
+//        X = Feistel(X, K1);
+//        X = Feistel(X, K2);
+        X = Lei_Messi(X, K1);
+        X = Lei_Messi(X, K2);
+        cipher_blocks.emplace_back(X);
+        ivbin = X;
+    }
+
+    std::vector<unsigned char> toRet;
+    for (std::bitset<N> cipher_block : cipher_blocks) {
+        toRet.emplace_back((cipher_block.to_ulong()>>24) & 0xff);
+        toRet.emplace_back((cipher_block.to_ulong()>>16) & 0xff);
+        toRet.emplace_back((cipher_block.to_ulong()>>8) & 0xff);
+        toRet.emplace_back((cipher_block.to_ulong()>>0) & 0xff);
+    }
+    return toRet;
+}
+std::vector<unsigned char> decrypt_text_cbc(std::vector<unsigned char> encr, std::vector<unsigned char> iv, std::vector<unsigned char> pass) {
+    std::vector<std::bitset<N>> open_blocks = std::vector<std::bitset<N>>();
+    std::vector<std::bitset<N>> cipher_blocks = std::vector<std::bitset<N>>();
+    unsigned long full_blocks = encr.size()/blocklen_bytes;
+    unsigned long long block = 0;
+    for (int i = 0; i<full_blocks; i++) {
+        int ptr = i*blocklen_bytes;
+        block = 0;
+        for (int b = 0; b<blocklen_bytes; b++) {
+            block += ((unsigned long)encr[ptr+b] << (blocklen_bytes-1-b)*8);
+        }
+        cipher_blocks.emplace_back(std::bitset<N>(block));
+    }
+
+    std::string binpass = ucharvec_to_binary_string(pass);
+    std::bitset<N/2> K1(std::string(binpass.begin(), binpass.begin() + (binpass.size()/2)));
+    std::bitset<N/2> K2 (std::string(binpass.begin() + (binpass.size()/2), binpass.end()));
+
+    block = 0;
+    for (int b = 0; b<blocklen_bytes; b++) {
+        block += ((unsigned long)iv[b] << (blocklen_bytes-1-b)*8);
+    }
+    std::bitset<N> ivbin(block);
+
+    for (std::bitset<N> X : cipher_blocks) {
+        std::bitset<N> Y = X;
+        X = Lei_Messi(X, K2);
+        X = Lei_Messi(X, K1);
+        X = tau(X);
+        X = Feistel(X, K2);
+        X = Feistel(X, K1);
+//        X = Feistel(X, K2);
+//        X = Feistel(X, K1);
+        X = tau(X);
+        X = X^ivbin;
+        open_blocks.emplace_back(X);
+        ivbin = Y;
+    }
+
+    unsigned long last_block_size = get_last_block_size(open_blocks);
+    if (last_block_size > 4 ) {
+#if !defined(NDEBUG)
+        //std::cerr << "Error while decrypting: last_block_size more than 4: " << last_block_size << " " << std::hex << std::showbase<< last_block_size << std::dec << std::endl;
+#endif
+        last_block_size = 0;
+    }
+
+    std::vector<unsigned char> toRet;
+    for (auto it = open_blocks.begin(); it!= open_blocks.end()- (last_block_size ? 2 : 1) ; it++) {
+        for (int b = 0; b<blocklen_bytes; b++) {
+            toRet.emplace_back((it->to_ulong() >> ((blocklen_bytes-1-b)*8)) & 0xff);
+        }
+    }
+    for (int i = 0; i<last_block_size; i++) {
+        toRet.emplace_back(((open_blocks.end()-2)->to_ulong() >> ((blocklen_bytes-i-1)*8)) & 0xff);
+    }
+    return toRet;
+}
+
 void output_content(std::vector<unsigned char> content, const std::string& target) {
     std::ofstream file(target, std::ofstream::binary);
     file.write(std::string(content.begin(), content.end()).c_str(), content.size());
@@ -463,7 +595,7 @@ void output_content(std::vector<unsigned char> content, const std::string& targe
 args arguments_parse(int argc, char** argv) {
     args args;
     int c;
-    while ((c = getopt(argc, argv, ":hedbq:wf::t:p:P::")) != -1) {
+    while ((c = getopt(argc, argv, ":hedgi:bq:wf::t:p:P::")) != -1) {
         switch(c) {
             case 'h':{
                 print_help();
@@ -557,6 +689,23 @@ args arguments_parse(int argc, char** argv) {
                 args.bflag = true;
                 break;
             }
+            case 'g': {
+                if (args.qflag or args.wflag or args.bflag) {
+                    std::cerr << "Only one task by run" << std::endl;
+                    exit(1);
+                }
+                args.gflag = true;
+                break;
+            }
+            case 'i': {
+                if (args.iflag) {
+                    std::cerr << "Only one IV by run" << std::endl;
+                    exit(1);
+                }
+                args.iflag = true;
+                args.iv_fn = optarg ? optarg : "iv.txt";
+                break;
+            }
             case '?': {
                 if (isprint(optopt)) {
                     std::cerr << "Unknown option -" << static_cast<char>(optopt) << "." << std::endl;
@@ -588,8 +737,8 @@ args arguments_parse(int argc, char** argv) {
         args.fflag = true;
         args.opentext_fn = "opentext.txt";
     }
-    if (!args.dflag && !args.eflag && !args.wflag && !args.qflag && !args.bflag) {
-        std::cerr << "Should use -e or -d or -w or -q";
+    if (!args.dflag && !args.eflag && !args.wflag && !args.qflag && !args.bflag && !args.cflag) {
+        std::cerr << "Should use -e, -d, -q, -w, -b or -c";
         print_help();
         exit(1);
     }
@@ -661,11 +810,13 @@ void print_help() {
               "-p PASSWORD\n" <<
               "-P PASSWORD filename\n" <<
               "-e encrypt mode\n" <<
-              "-d decrypt mode\n"
-              "-t TARGET filename\n"
-              "-q R start error propagating test on R rounds\n"
-              "-w find weak keys\n"
-              "-b brute force pass\n"
-              "You should use -e, -d, -q or -w parameter\n"
+              "-d decrypt mode\n" <<
+              "-t TARGET filename\n" <<
+              "-q R start error propagating test on R rounds\n" <<
+              "-w find weak keys\n" <<
+              "-b brute force pass\n" <<
+              "-g use CBC" <<
+              "-c run cyclic experiment" <<
+              "You should use -e, -d, -q, -w, -b or -c parameter\n"
               << std::endl;
 }
