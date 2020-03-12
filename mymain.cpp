@@ -364,6 +364,7 @@ void check_error_propagating(int rounds) {
             std::bitset<N> right(j);
             left.set(i, false);
             right.set(i, true);
+            bool flag_tau = false;
             for (int r = 0; r<rounds; r++){
                 if (r < rounds/2+1) {
                     if (r%2) {
@@ -376,6 +377,11 @@ void check_error_propagating(int rounds) {
                     }
                 }
                 else {
+                    if (!flag_tau) {
+                        flag_tau = true;
+                        left = tau(left);
+                        right = tau(right);
+                    }
                     if (r%2) {
                         left = Lei_Messi(left, K1);
                         right = Lei_Messi(right, K1);
@@ -511,10 +517,12 @@ void cyclic_test(int i) {
         t++;
         Y = Feistel(Y, key_one_half);
         Y = Feistel(Y, key_one_half);
+        Y = tau(Y);
         Y = Lei_Messi(Y, key_one_half);
         Y = Lei_Messi(Y, key_one_half);
         Y = Feistel(Y, key_two_half);
         Y = Feistel(Y, key_two_half);
+        Y = tau(Y);
         Y = Lei_Messi(Y, key_two_half);
         Y = Lei_Messi(Y, key_two_half);
         if (Y == open) {
@@ -592,8 +600,7 @@ std::vector<unsigned char> encrypt_text(std::vector<unsigned char> open, std::ve
     for (std::bitset<N> X : open_blocks) {
         X = Feistel(X, K1);
         X = Feistel(X, K2);
-//        X = Feistel(X, K1);
-//        X = Feistel(X, K2);
+        X = tau(X);
         X = Lei_Messi(X, K1);
         X = Lei_Messi(X, K2);
         cipher_blocks.emplace_back(X);
@@ -629,11 +636,9 @@ std::vector<unsigned char> decrypt_text(std::vector<unsigned char> encr, std::ve
     for (std::bitset<N> X : cipher_blocks) {
         X = Lei_Messi(X, K2);
         X = Lei_Messi(X, K1);
-        X = tau(X);
+//        X = tau(X);
         X = Feistel(X, K2);
         X = Feistel(X, K1);
-//        X = Feistel(X, K2);
-//        X = Feistel(X, K1);
         X = tau(X);
         open_blocks.emplace_back(X);
     }
@@ -647,7 +652,7 @@ std::vector<unsigned char> decrypt_text(std::vector<unsigned char> encr, std::ve
     }
 
     std::vector<unsigned char> toRet;
-    for (auto it = open_blocks.begin(); it!= open_blocks.end()- (last_block_size ? 2 : 1) ; it++) {
+    for (auto it = open_blocks.begin(); it != open_blocks.end()- (last_block_size ? 2 : 1) ; it++) {
         for (int b = 0; b<blocklen_bytes; b++) {
             toRet.emplace_back((it->to_ulong() >> ((blocklen_bytes-1-b)*8)) & 0xff);
         }
@@ -687,6 +692,7 @@ std::vector<unsigned char> encrypt_text_cbc(std::vector<unsigned char> open, std
         X = X^ivbin;
         X = Feistel(X, K1);
         X = Feistel(X, K2);
+        X = tau(X);
 //        X = Feistel(X, K1);
 //        X = Feistel(X, K2);
         X = Lei_Messi(X, K1);
@@ -732,7 +738,7 @@ std::vector<unsigned char> decrypt_text_cbc(std::vector<unsigned char> encr, std
         std::bitset<N> Y = X;
         X = Lei_Messi(X, K2);
         X = Lei_Messi(X, K1);
-        X = tau(X);
+//        X = tau(X);
         X = Feistel(X, K2);
         X = Feistel(X, K1);
 //        X = Feistel(X, K2);
