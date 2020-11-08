@@ -7,133 +7,8 @@
 #include <thread>
 #include <mutex>
 #include <algorithm>
-#include <random>
+#include <cstring>
 
-
-/*
- * guessed, pass is 0x71776572
-
-Text is :
-Super-puper long open text
-Time elapsed: 159274s
- */
-
-
-
-/*
- *
- * ==============
-Thread #0
-Thread time: 0s
-t: 11312
-Key one: 0xba35ba35
-Key two: 0x8770877
-Open text: 0x11a149bd
-==============
-
-
-
-==============
-Thread #4
-Thread time: 1s
-t: 31181
-Key one: 0x6d7b6d7b
-Key two: 0x13311331
-Open text: 0x2b54c4ff
-==============
-
-
-
-==============
-Thread #5
-Thread time: 3s
-t: 66699
-Key one: 0x857d857d
-Key two: 0xa1dfa1df
-Open text: 0x714a3423
-==============
-
-
-
-==============
-Thread #7
-Thread time: 5s
-t: 95556
-Key one: 0x87778777
-Key two: 0x48424842
-Open text: 0x500b8a57
-==============
-
-
-
-==============
-Thread #9
-Thread time: 5s
-t: 97433
-Key one: 0xe02ae02a
-Key two: 0x74097409
-Open text: 0x25dd70b2
-==============
-
-
-
-==============
-Thread #8
-Thread time: 5s
-t: 103171
-Key one: 0xfb20fb2
-Key two: 0xfaf6faf6
-Open text: 0x2d9246ba
-==============
-
-
-
-==============
-Thread #3
-Thread time: 5s
-t: 112581
-Key one: 0x6fa06fa0
-Key two: 0xef0eef0e
-Open text: 0x875a459
-==============
-
-
-
-==============
-Thread #1
-Thread time: 6s
-t: 116731
-Key one: 0xfa98fa98
-Key two: 0xe2a8e2a8
-Open text: 0x2963bb62
-==============
-
-
-
-==============
-Thread #6
-Thread time: 6s
-t: 119419
-Key one: 0xbb42bb42
-Key two: 0x33f133f1
-Open text: 0x745fb9d8
-==============
-
-
-
-==============
-Thread #2
-Thread time: 8s
-t: 214559
-Key one: 0xf2c5f2c5
-Key two: 0xa103a103
-Open text: 0x1f7139c2
-==============
-
-All time: 8s
-
-Process finished with exit code 0
-*/
 
 #define passlen_bytes 4
 #define blocklen_bytes 4
@@ -155,6 +30,8 @@ struct arguments {
     bool iflag = false;
     bool gflag = false;
     bool cflag = false;
+    bool yflag = false;
+    bool mflag = false;
     std::string opentext_fn = "opentext.txt";
     std::string encrypted_fn = "encrypted.txt";
     std::string password = "passerr";
@@ -200,6 +77,10 @@ void cyclic_task();
 void cyclic_test(int i);
 
 
+std::vector<unsigned char> hash_text(std::vector<unsigned char> text);
+
+void birthday(std::vector<unsigned char> text);
+
 
 int main(int argc, char** argv) {
     args arguments = arguments_parse(argc, argv);
@@ -241,10 +122,65 @@ int main(int argc, char** argv) {
     }
     else if (arguments.bflag) {
         opentext = get_content(arguments.opentext_fn, 0);
-        closetext = get_content(arguments.encryoted_fn, 0);
+        closetext = get_content(arguments.encrypted_fn, 0);
         brute(opentext, closetext);
     }
+    else if (arguments.mflag) {
+        argument_check(arguments, opentext, password);
+        std::vector<unsigned char> hash_value = hash_text(opentext);
+        output_content(hash_value, arguments.tflag ? arguments.target_fn : "hash");
+        for (auto c : hash_value) {
+            std::cout << c;
+        }
+    }
     return 0;
+}
+
+std::vector<unsigned char> hash_text(std::vector<unsigned char> text) {
+    /*
+     * Делим текст на блоки размером с блок блочного шифра
+     * Если последний блок неполный дописываем ему в начало 0
+     * Формируем последний блок -- число битов в последнем блоке
+     * Стартовое значение 00110011001100110011001100110011
+     * F на ключе y от Х + X + Y, Y --  Y -- предыдущее значение
+     */
+    std::vector<unsigned char> start_hash_value = get_content("start_hash", 4);
+    std::vector<std::vector<unsigned char>> blocks = std::vector<std::vector<unsigned char>>();
+    std::vector<unsigned char> block;
+    std::vector<unsigned char> key = start_hash_value;
+    for (int i = 0; (i<text.size()-(text.size()%4)); i+=4) {
+        block.emplace_back(text[i]);
+        block.emplace_back(text[i+1]);
+        block.emplace_back(text[i+2]);
+        block.emplace_back(text[i+3]);
+        blocks.emplace_back(block);
+        block.erase(block.begin(), block.end());
+    }
+    if (blocks.size() * 4 != text.size()) {
+        for (int i = 0; i < 4 - text.size() % 4; i++) {
+            block.emplace_back(0);
+        }
+        for (int i = 0; i < text.size() % 4; i++) {
+            block.emplace_back(text[text.size() - text.size() % 4 + i]);
+        }
+        blocks.emplace_back(block);
+        block.erase(block.begin(), block.end());
+    }
+    block.emplace_back(0);
+    block.emplace_back(0);
+    block.emplace_back(0);
+    block.emplace_back(text.size()%4);
+    blocks.emplace_back(block);
+    block.erase(block.begin(), block.end());
+
+
+    for (int i = 0; i<blocks.size(); i++) {
+        block = encrypt_text(blocks[i], key);
+        key = block;
+    }
+
+    return block;
+
 }
 
 std::bitset<N/2> sblock(std::bitset<N/2> X) {
@@ -276,7 +212,7 @@ std::bitset<N/2> spn(std::bitset<N/2> X, std::bitset<N/2> key) {
     toRet = sblock(toRet);
     toRet = pblock(toRet);
     return toRet;
-    return pblock(sblock(X^key));
+//    return pblock(sblock(X^key));
 }
 
 std::bitset<N> Feistel(std::bitset<N> open, std::bitset<N/2> r_key) {
@@ -778,7 +714,7 @@ void output_content(std::vector<unsigned char> content, const std::string& targe
 args arguments_parse(int argc, char** argv) {
     args args;
     int c;
-    while ((c = getopt(argc, argv, ":hedgci:bq:wf::t:p:P::")) != -1) {
+    while ((c = getopt(argc, argv, ":hedgcmyi:bq:wf::t:p:P::")) != -1) {
         switch(c) {
             case 'h':{
                 print_help();
@@ -837,7 +773,7 @@ args arguments_parse(int argc, char** argv) {
                 break;
             }
             case 'q': {
-                if (args.dflag or args.eflag or args.wflag or args.bflag) {
+                if (args.dflag or args.eflag or args.wflag or args.bflag or args.mflag) {
                     std::cerr << "Only one task by run" << std::endl;
                     exit(1);
                 }
@@ -857,7 +793,7 @@ args arguments_parse(int argc, char** argv) {
                 break;
             }
             case 'w':{
-                if (args.qflag or args.dflag or args.eflag or args.bflag) {
+                if (args.qflag or args.dflag or args.eflag or args.bflag or args.mflag) {
                     std::cerr << "Only one task by run" << std::endl;
                     exit(1);
                 }
@@ -865,7 +801,7 @@ args arguments_parse(int argc, char** argv) {
                 break;
             }
             case 'b': {
-                if (args.qflag or args.dflag or args.eflag or args.wflag){
+                if (args.qflag or args.dflag or args.eflag or args.wflag or args.mflag){
                     std::cerr << "Only one task by run" << std::endl;
                     exit(1);
                 }
@@ -873,7 +809,7 @@ args arguments_parse(int argc, char** argv) {
                 break;
             }
             case 'g': {
-                if (args.qflag or args.wflag or args.bflag) {
+                if (args.qflag or args.wflag or args.bflag or args.mflag or args.cflag) {
                     std::cerr << "Only one task by run" << std::endl;
                     exit(1);
                 }
@@ -881,11 +817,27 @@ args arguments_parse(int argc, char** argv) {
                 break;
             }
             case 'c' : {
-                if (args.qflag or args.dflag or args.eflag or args.wflag){
+                if (args.qflag or args.dflag or args.eflag or args.wflag or args.mflag){
                     std::cerr << "Only one task by run" << std::endl;
                     exit(1);
                 }
                 args.cflag = true;
+                break;
+            }
+            case 'm': {
+                if (args.qflag or args.dflag or args.eflag or args.wflag or args.cflag){
+                    std::cerr << "Only one task by run" << std::endl;
+                    exit(1);
+                }
+                args.mflag = true;
+                break;
+            }
+            case 'y': {
+                if (args.qflag or args.dflag or args.eflag or args.wflag or args.cflag or args.mflag){
+                    std::cerr << "Only one task by run" << std::endl;
+                    exit(1);
+                }
+                args.yflag = true;
                 break;
             }
             case 'i': {
@@ -928,7 +880,7 @@ args arguments_parse(int argc, char** argv) {
         args.fflag = true;
         args.opentext_fn = "opentext.txt";
     }
-    if (!args.dflag && !args.eflag && !args.wflag && !args.qflag && !args.bflag && !args.cflag) {
+    if (!args.dflag && !args.eflag && !args.wflag && !args.qflag && !args.bflag && !args.cflag && !args.mflag && !args.yflag) {
         std::cerr << "Should use -e, -d, -q, -w, -b or -c";
         print_help();
         exit(1);
@@ -937,11 +889,11 @@ args arguments_parse(int argc, char** argv) {
 }
 
 void argument_check(args args, std::vector<unsigned char>& content, std::vector<unsigned char>& pass) {
-    if (args.fflag && args.eflag) {
+    if (args.fflag && args.eflag || args.mflag) {
         content = get_content(args.opentext_fn, 0);
     }
     else if (args.fflag && args.dflag) {
-        content = get_content(args.encryoted_fn, 0);
+        content = get_content(args.encrypted_fn, 0);
     }
     if (args.pflag) {
         if (args.password == "lenerror") {
@@ -1002,13 +954,15 @@ void print_help() {
               "-P PASSWORD filename. Default :\"password.txt\"\n" <<
               "-e encrypt mode\n" <<
               "-d decrypt mode\n" <<
+              "-m hash mode\n" <<
               "-t TARGET filename. Default: target.txt\n" <<
               "-q R start error propagating test on R rounds. Default: 4\n" <<
               "-w find weak keys\n" <<
               "-b brute force pass\n" <<
               "-g use CBC" <<
               "-i IV use first 4 bytes of IV file as a IV. Default: \"iv.txt\"\n" <<
-              "-c run cyclic experiment" <<
-              "You should use -e, -d, -q, -w, -b or -c parameter\n"
+              "-c run cyclic experiment\n" <<
+              "-y run birthday attack\n" <<
+              "You should use -e, -d, -q, -w, -b, -m, -y or -c parameter\n"
               << std::endl;
 }
