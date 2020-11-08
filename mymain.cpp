@@ -156,7 +156,7 @@ struct arguments {
     bool gflag = false;
     bool cflag = false;
     std::string opentext_fn = "opentext.txt";
-    std::string encryoted_fn = "encrypted.txt";
+    std::string encrypted_fn = "encrypted.txt";
     std::string password = "passerr";
     std::string paswwrord_fn = "password.txt";
     std::string target_fn = "target.txt";

@@ -23,7 +23,7 @@ struct arguments {
     bool wflag = false;
     bool qflag = false;
     std::string opentext_fn = "opentext.txt";
-    std::string encryoted_fn = "encrypted.txt";
+    std::string encrypted_fn = "encrypted.txt";
     std::string password = "passerr";
     std::string paswwrord_fn = "password.txt";
     std::string target_fn = "target.txt";
@@ -319,7 +319,7 @@ void argument_check(args args, std::vector<unsigned char>& content, std::vector<
         content = get_content(args.opentext_fn);
     }
     else if (args.fflag && args.dflag) {
-        content = get_content(args.encryoted_fn);
+        content = get_content(args.encrypted_fn);
     }
     if (args.pflag) {
         if (args.password == "lenerror") {
